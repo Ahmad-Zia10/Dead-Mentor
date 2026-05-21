@@ -56,13 +56,12 @@ def chunk_documents(documents: list) -> list:
     return chunks
 
 
-def store_in_pinecone(chunks: list, mentor_name: str):
+def store_in_pinecone(chunks: list, mentor_name: str, start_batch: int = 0):
     embeddings = get_embeddings()
     batch_size = 50
+    total_batches = -(-len(chunks) // batch_size)
 
-    total_batches = -(-len(chunks) // batch_size)  # ceiling division
-
-    for i in range(0, len(chunks), batch_size):
+    for i in range(start_batch * batch_size, len(chunks), batch_size):
         batch = chunks[i:i + batch_size]
         batch_num = i // batch_size + 1
 
@@ -75,15 +74,14 @@ def store_in_pinecone(chunks: list, mentor_name: str):
 
         print(f"  Batch {batch_num}/{total_batches} upserted")
 
-        # Don't sleep after the last batch
         if i + batch_size < len(chunks):
             print(f"  Waiting 65 seconds for rate limit...")
             time.sleep(65)
 
-    print(f"  Stored {len(chunks)} chunks for {mentor_name} ✅")
+    print(f"  Stored chunks for {mentor_name} ✅")
 
 
-def ingest_mentor(mentor_name: str):
+def ingest_mentor(mentor_name: str, start_batch: int = 0):
     data_path = f"./data/raw/{mentor_name}"
 
     if not os.path.exists(data_path):
@@ -98,14 +96,17 @@ def ingest_mentor(mentor_name: str):
         return
 
     chunks = chunk_documents(documents)
-    print(f"  Created {len(chunks)} chunks")
+    print(f"  Created {len(chunks)} chunks, resuming from batch {start_batch + 1}")
 
-    store_in_pinecone(chunks, mentor_name)
+    store_in_pinecone(chunks, mentor_name, start_batch=start_batch)
     print(f"  Done: {mentor_name} ✅")
 
 
 if __name__ == "__main__":
     print("Starting ingestion pipeline...")
-    for mentor in MENTORS:
-        ingest_mentor(mentor)
+    
+    # ingest_mentor("marcus", start_batch=23)   # fully done, skip
+    # ingest_mentor("feynman", start_batch=21)  # fully done, skip
+    ingest_mentor("darwin", start_batch=36)    # resume from batch 37
+    
     print("\nAll mentors ingested successfully. ✅")

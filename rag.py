@@ -1,35 +1,43 @@
+"""Retrieval over the per-mentor Pinecone namespaces."""
+
+from functools import lru_cache
+
 from langchain_pinecone import PineconeVectorStore
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from config import GEMINI_API_KEY, PINECONE_INDEX_NAME, GEMINI_EMBEDDING_MODEL, PINECONE_API_KEY
-import os
+from config import (
+    PINECONE_API_KEY,
+    PINECONE_INDEX_NAME,
+    RETRIEVAL_K,
+    RETRIEVAL_SCORE_THRESHOLD,
+)
+from embeddings import get_embeddings
 
-os.environ["PINECONE_API_KEY"] = PINECONE_API_KEY
 
-def get_embeddings():
-    return GoogleGenerativeAIEmbeddings(
-        model=GEMINI_EMBEDDING_MODEL,
-        google_api_key=GEMINI_API_KEY
-    )
-
-def get_retriever(mentor_name: str):
-    vectorstore = PineconeVectorStore(
+@lru_cache(maxsize=None)
+def get_vectorstore(mentor_name: str) -> PineconeVectorStore:
+    """Cached per mentor; rebuilding this per request adds latency to every message."""
+    return PineconeVectorStore(
         index_name=PINECONE_INDEX_NAME,
         embedding=get_embeddings(),
-        namespace=mentor_name
+        namespace=mentor_name,
+        pinecone_api_key=PINECONE_API_KEY,
     )
-    return vectorstore.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 5}
-    )
+
 
 def retrieve_context(mentor_name: str, query: str) -> list:
-    retriever = get_retriever(mentor_name)
-    docs = retriever.invoke(query)
-    return docs
+    """Return chunks relevant to the query, or [] if none clear the threshold.
 
-if __name__ == "__main__":
-    docs = retrieve_context("marcus", "How do I deal with failure?")
-    for doc in docs:
-        print("---")
-        print(doc.page_content)
-        print("Source:", doc.metadata)
+    Returning fewer than RETRIEVAL_K documents is deliberate. Always handing the
+    model k chunks means an off-topic question still arrives with source material
+    attached, which is how a grounded system ends up confidently inventing an
+    answer. An empty list lets the caller say "not in my writings" instead.
+    """
+    store = get_vectorstore(mentor_name)
+    scored = store.similarity_search_with_relevance_scores(query, k=RETRIEVAL_K)
+
+    return [doc for doc, score in scored if score >= RETRIEVAL_SCORE_THRESHOLD]
+
+
+def retrieve_with_scores(mentor_name: str, query: str) -> list[tuple]:
+    """Same retrieval, but keeps the scores. Useful for tuning the threshold."""
+    store = get_vectorstore(mentor_name)
+    return store.similarity_search_with_relevance_scores(query, k=RETRIEVAL_K)

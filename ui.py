@@ -66,11 +66,16 @@ if query := st.chat_input(f"Ask {MENTOR_DISPLAY[mentor_key].split('—')[0].stri
     # Call API
     with st.spinner("Consulting the archives..."):
         try:
-            response = requests.post(f"{API_URL}/ask", json={
-                "mentor": mentor_key,
-                "query": query,
-                "history": st.session_state.history
-            })
+            response = requests.post(
+                f"{API_URL}/ask",
+                json={
+                    "mentor": mentor_key,
+                    "query": query,
+                    "history": st.session_state.history
+                },
+                timeout=60
+            )
+            response.raise_for_status()
             data = response.json()
 
             answer = data["response"]
